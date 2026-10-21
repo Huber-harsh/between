@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>Letters</title>
+<title>Between</title>
 <style>
 :root{--bg:#fff;--fg:#1f2328;--mut:#6b7280;--line:#e2e5e9;--side:#f6f7f9;--acc:#2563eb;--onacc:#fff;--tint:#eef3ff;--err:#b42318}
 @media (prefers-color-scheme:dark){:root{--bg:#16181c;--fg:#e6e8eb;--mut:#9aa1ab;--line:#2c3036;--side:#1c1f24;--acc:#6ea0ff;--onacc:#0b1220;--tint:#1d2433;--err:#ff8a80}}
@@ -184,7 +184,7 @@ var banner = function () { return notice ? h('p', { class: 'banner' + (notice.er
 function loginScreen() {
   var em, pw;
   return h('form', { class: 'dialog', onsubmit: function (e) { e.preventDefault(); signIn(em.value, pw.value); } },
-    h('h1', null, 'Letters'),
+    h('h1', null, 'Between'),
     h('label', null, 'Email', em = h('input', { type: 'email', required: true, autocomplete: 'username', value: lastEmail })),
     h('label', null, 'Password', pw = h('input', { type: 'password', required: true, autocomplete: 'current-password' })),
     banner(),
@@ -250,7 +250,7 @@ function threadScreen() {
 function boardScreen() {
   return h('div', null,
     h('header', null,
-      h('h1', null, 'Letters'), h('span', { class: 'muted' }, me.name), h('span', { class: 'sp' }),
+      h('h1', null, 'Between'), h('span', { class: 'muted' }, me.name), h('span', { class: 'sp' }),
       h('button', { class: 'pri', onclick: function () { form = { id: null, title: '', body: '' }; view = 'compose'; notice = null; render(); } }, 'New post'),
       h('button', { disabled: loading, onclick: function () { notice = null; load(); } }, loading ? 'Loading…' : 'Refresh'),
       h('button', { onclick: signOut }, 'Sign out')),
