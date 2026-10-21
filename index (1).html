@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Letters</title>
+<style>
+:root{--bg:#fff;--fg:#1f2328;--mut:#6b7280;--line:#e2e5e9;--side:#f6f7f9;--acc:#2563eb;--onacc:#fff;--tint:#eef3ff;--err:#b42318}
+@media (prefers-color-scheme:dark){:root{--bg:#16181c;--fg:#e6e8eb;--mut:#9aa1ab;--line:#2c3036;--side:#1c1f24;--acc:#6ea0ff;--onacc:#0b1220;--tint:#1d2433;--err:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.5 system-ui,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--fg)}
+button,input,textarea{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:.45rem .8rem}
+button{cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+button.pri{background:var(--acc);border-color:var(--acc);color:var(--onacc)}
+button.danger{color:var(--err)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+textarea{width:100%;min-height:6rem;resize:vertical}
+label{display:block;margin:.8rem 0 .3rem;font-weight:600}
+label input,label textarea{display:block;width:100%;margin-top:.3rem;font-weight:400}
+.muted,small,.meta{color:var(--mut)}
+small{display:block}
+.row{display:flex;gap:.5rem;margin:.6rem 0;align-items:center}
+.sp{flex:1}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;padding:.6rem 1rem;border-bottom:1px solid var(--line)}
+h1{font-size:1.2rem;margin:0}
+ul{list-style:none;margin:.6rem 0;padding:0}
+.card{display:block;width:100%;text-align:left;margin-bottom:.4rem}
+.card:hover{background:var(--side)}
+.col{max-width:720px;margin:0 auto;padding:1rem}
+.dialog{max-width:340px;margin:12vh auto;padding:1rem 1.2rem;border:1px solid var(--line);border-radius:10px}
+.banner{margin:0;padding:.6rem 1rem;background:var(--tint)}
+.banner.err{color:var(--err)}
+.tag{font-size:.75rem;background:var(--acc);color:var(--onacc);border-radius:4px;padding:0 .4rem;margin-left:.5rem}
+.body{white-space:pre-wrap;overflow-wrap:anywhere;font:1.1rem/1.75 Georgia,serif;max-width:65ch}
+.post{margin-top:1rem}
+.big{min-height:55vh}
+.reply{margin:1rem 0 1rem 1.5rem;padding:.6rem 1rem;border-left:3px solid var(--acc);background:var(--tint);border-radius:0 8px 8px 0}
+.reply .body{font-size:1rem;line-height:1.6}
+.reply .tag{margin:0 .4rem 0 0}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+// ===== STEP: paste your two Supabase values between the quotes =====
+var SUPABASE_URL = 'https://zvwhrlbocvppbzhsdbaa.supabase.co';
+var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2d2hybGJvY3ZwcGJ6aHNkYmFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI1NjQyNDMsImV4cCI6MjEwODE0MDI0M30.uBDjCQNrnjZRYq8ydmJd4awSKZI8mmV7Gr4M9AR3RgE';
+// ===================================================================
+
+var db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+var $ = document.getElementById('app');
+
+var me = null, names = {}, posts = [], replies = [], reads = [];
+var view = 'feed', openId = null, form = { id: null, title: '', body: '' };
+var draft = '', editR = null, notice = null, busy = false, loading = false, loadErr = false, lastEmail = '';
+
+// Small helper that builds elements safely (text is never treated as HTML).
+function h(tag, props) {
+  var e = document.createElement(tag), kids = Array.prototype.slice.call(arguments, 2);
+  for (var k in (props || {})) {
+    var v = props[k];
+    if (k === 'class') e.className = v;
+    else if (k === 'value') e.value = v;
+    else if (k.indexOf('on') === 0) e[k] = v;
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v);
+  }
+  kids.reduce(function (a, c) { return a.concat(c); }, []).forEach(function (c) {
+    if (c !== null && c !== undefined && c !== false) e.appendChild(c.nodeType ? c : document.createTextNode(c));
+  });
+  return e;
+}
+var fmt = function (d) { return new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }); };
+var T = function (s) { return new Date(s).getTime(); };
+var who = function (id) { return names[id] || 'Unknown'; };
+var edited = function (x) { return x.updated_at !== x.created_at ? ' (edited)' : ''; };
+var cur = function () { return posts.filter(function (p) { return p.id === openId; })[0]; };
+function say(text, err) { notice = { text: text, err: !!err }; render(); }
+
+function unread(p) {
+  var l = p.author_id !== me.id ? T(p.updated_at) : 0;
+  replies.forEach(function (r) { if (r.post_id === p.id && r.author_id !== me.id) l = Math.max(l, T(r.updated_at)); });
+  if (!l) return false;
+  var rd = reads.filter(function (x) { return x.post_id === p.id; })[0];
+  return !rd || l > T(rd.last_read_at);
+}
+
+// ---------- talking to the database ----------
+async function load() {
+  loading = true; render();
+  var res = await Promise.all([
+    db.from('members').select('user_id,display_name'),
+    db.from('posts').select('*').order('created_at', { ascending: false }),
+    db.from('replies').select('*').order('created_at', { ascending: true }),
+    db.from('reads').select('post_id,last_read_at')
+  ]);
+  loading = false;
+  var err = res[0].error || res[1].error || res[2].error || res[3].error;
+  if (err) { loadErr = true; notice = { text: 'Could not load: ' + err.message, err: true }; }
+  else {
+    names = {}; (res[0].data || []).forEach(function (m) { names[m.user_id] = m.display_name; });
+    posts = res[1].data || []; replies = res[2].data || []; reads = res[3].data || []; loadErr = false;
+  }
+  render();
+}
+
+// Only says "saved" if the database confirms rows were really changed.
+async function run(ok, fail, q) {
+  busy = true; notice = null; render();
+  var r = await q;
+  busy = false;
+  if (r.error || (Array.isArray(r.data) && !r.data.length)) {
+    say(fail + ': ' + (r.error ? r.error.message : 'not allowed, or it no longer exists.'), true);
+    return false;
+  }
+  notice = { text: ok, err: false };
+  await load();
+  return true;
+}
+
+async function enter(user) {
+  var m = await db.from('members').select('display_name').eq('user_id', user.id).maybeSingle();
+  if (m.error || !m.data) {
+    await db.auth.signOut({ scope: 'local' }); me = null;
+    return say(m.error
+      ? 'Signed in, but the database check failed: ' + m.error.message + ' (the SQL setup may not have finished).'
+      : 'Signed in, but this account is not registered as a member yet. Run the member insert in Supabase with this exact email.', true);
+  }
+  me = { id: user.id, name: m.data.display_name };
+  await load();
+}
+async function signIn(email, pw) {
+  lastEmail = email; busy = true; notice = null; render();
+  var r = await db.auth.signInWithPassword({ email: email, password: pw });
+  busy = false;
+  if (r.error || !r.data.user) return say('Sign-in failed: ' + (r.error ? r.error.message : 'unknown error'), true);
+  await enter(r.data.user);
+}
+async function signOut() {
+  await db.auth.signOut({ scope: 'local' });
+  me = null; posts = []; replies = []; reads = []; names = {}; view = 'feed'; openId = null; notice = null; render();
+}
+
+async function openThread(id) {
+  openId = id; view = 'thread'; notice = null; draft = ''; editR = null; render();
+  var up = await db.from('reads').upsert({ post_id: id }, { onConflict: 'user_id,post_id' });
+  if (!up.error) {
+    var r = await db.from('reads').select('post_id,last_read_at');
+    if (!r.error) { reads = r.data || []; render(); }
+  }
+}
+async function savePost() {
+  var d = { title: form.title.trim(), body: form.body };
+  if (!d.title || !d.body.trim()) return say('Add a title and a message.', true);
+  var q = form.id ? db.from('posts').update(d).eq('id', form.id).select() : db.from('posts').insert(d).select();
+  if (await run(form.id ? 'Post updated.' : 'Post published.', 'Could not save post', q)) view = form.id ? 'thread' : 'feed';
+  render();
+}
+async function delPost(id) {
+  if (confirm('Delete this post and all of its replies?') &&
+    await run('Post deleted.', 'Could not delete post', db.from('posts').delete().eq('id', id).select())) { view = 'feed'; openId = null; }
+  render();
+}
+async function sendReply() {
+  if (!draft.trim()) return say('Write something first.', true);
+  if (await run('Reply sent.', 'Could not send reply', db.from('replies').insert({ post_id: openId, body: draft }).select())) draft = '';
+  render();
+}
+async function saveReply(id, text) {
+  editR.body = text;
+  if (!text.trim()) return say('A reply cannot be empty.', true);
+  if (await run('Reply updated.', 'Could not update reply', db.from('replies').update({ body: text }).eq('id', id).select())) editR = null;
+  render();
+}
+async function delReply(id) {
+  if (confirm('Delete this reply?')) await run('Reply deleted.', 'Could not delete reply', db.from('replies').delete().eq('id', id).select());
+}
+
+// ---------- screens ----------
+var banner = function () { return notice ? h('p', { class: 'banner' + (notice.err ? ' err' : ''), role: notice.err ? 'alert' : 'status' }, notice.text) : null; };
+
+function loginScreen() {
+  var em, pw;
+  return h('form', { class: 'dialog', onsubmit: function (e) { e.preventDefault(); signIn(em.value, pw.value); } },
+    h('h1', null, 'Letters'),
+    h('label', null, 'Email', em = h('input', { type: 'email', required: true, autocomplete: 'username', value: lastEmail })),
+    h('label', null, 'Password', pw = h('input', { type: 'password', required: true, autocomplete: 'current-password' })),
+    banner(),
+    h('div', { class: 'row' }, h('button', { class: 'pri', disabled: busy }, busy ? 'Signing in…' : 'Sign in')));
+}
+
+function feedScreen() {
+  if (loading && !posts.length) return h('p', { class: 'muted' }, 'Loading…');
+  if (!posts.length) return loadErr ? null : h('p', { class: 'muted' }, 'No posts yet. Press New post to write the first one.');
+  return h('ul', null, posts.map(function (p) {
+    var n = replies.filter(function (r) { return r.post_id === p.id; }).length;
+    return h('li', null, h('button', { class: 'card', onclick: function () { openThread(p.id); } },
+      h('b', null, p.title), unread(p) && h('span', { class: 'tag' }, 'New'),
+      h('small', null, who(p.author_id) + ' · ' + fmt(p.created_at) + ' · ' + n + (n === 1 ? ' reply' : ' replies'))));
+  }));
+}
+
+function composeScreen() {
+  var t, b;
+  return h('form', { onsubmit: function (e) { e.preventDefault(); form.title = t.value; form.body = b.value; savePost(); } },
+    h('h2', null, form.id ? 'Edit post' : 'New post'),
+    h('label', null, 'Title', t = h('input', { required: true, value: form.title })),
+    h('label', null, 'Message', b = h('textarea', { class: 'big', required: true, value: form.body })),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', onclick: function () { view = form.id ? 'thread' : 'feed'; render(); } }, 'Cancel'),
+      h('button', { class: 'pri', disabled: busy }, busy ? 'Saving…' : 'Save post')));
+}
+
+function replyBlock(r) {
+  var ta;
+  return h('div', { class: 'reply' },
+    h('p', { class: 'meta' }, h('span', { class: 'tag' }, 'Reply'), ' ' + who(r.author_id) + ' · ' + fmt(r.created_at) + edited(r)),
+    editR && editR.id === r.id
+      ? [ta = h('textarea', { 'aria-label': 'Edit reply', value: editR.body }),
+         h('div', { class: 'row' },
+           h('button', { onclick: function () { editR = null; render(); } }, 'Cancel'),
+           h('button', { class: 'pri', disabled: busy, onclick: function () { saveReply(r.id, ta.value); } }, 'Save reply'))]
+      : [h('div', { class: 'body' }, r.body),
+         r.author_id === me.id && h('div', { class: 'row' },
+           h('button', { onclick: function () { editR = { id: r.id, body: r.body }; render(); } }, 'Edit'),
+           h('button', { class: 'danger', onclick: function () { delReply(r.id); } }, 'Delete'))]);
+}
+
+function threadScreen() {
+  var p = cur(), box;
+  var rs = replies.filter(function (r) { return r.post_id === p.id; });
+  return h('div', null,
+    h('button', { onclick: function () { view = 'feed'; openId = null; notice = null; render(); } }, 'All posts'),
+    h('article', { class: 'post' },
+      h('h2', null, p.title),
+      h('p', { class: 'meta' }, who(p.author_id) + ' · ' + fmt(p.created_at) + edited(p)),
+      h('div', { class: 'body' }, p.body),
+      p.author_id === me.id && h('div', { class: 'row' },
+        h('button', { onclick: function () { form = { id: p.id, title: p.title, body: p.body }; view = 'compose'; render(); } }, 'Edit'),
+        h('button', { class: 'danger', onclick: function () { delPost(p.id); } }, 'Delete'))),
+    h('h3', null, 'Replies (' + rs.length + ')'),
+    !rs.length && h('p', { class: 'muted' }, 'No replies yet.'),
+    rs.map(replyBlock),
+    h('label', null, 'Write a reply', box = h('textarea', { value: draft, oninput: function () { draft = box.value; } })),
+    h('div', { class: 'row' }, h('button', { class: 'pri', disabled: busy, onclick: function () { draft = box.value; sendReply(); } }, busy ? 'Sending…' : 'Send reply')));
+}
+
+function boardScreen() {
+  return h('div', null,
+    h('header', null,
+      h('h1', null, 'Letters'), h('span', { class: 'muted' }, me.name), h('span', { class: 'sp' }),
+      h('button', { class: 'pri', onclick: function () { form = { id: null, title: '', body: '' }; view = 'compose'; notice = null; render(); } }, 'New post'),
+      h('button', { disabled: loading, onclick: function () { notice = null; load(); } }, loading ? 'Loading…' : 'Refresh'),
+      h('button', { onclick: signOut }, 'Sign out')),
+    banner(),
+    h('main', { class: 'col' }, view === 'compose' ? composeScreen() : (view === 'thread' && cur()) ? threadScreen() : feedScreen()));
+}
+
+function render() {
+  while ($.firstChild) $.removeChild($.firstChild);
+  $.appendChild(me ? boardScreen() : loginScreen());
+}
+
+(async function start() {
+  if (SUPABASE_URL.indexOf('PASTE') === 0 || SUPABASE_KEY.indexOf('PASTE') === 0) {
+    $.appendChild(h('p', { class: 'banner err' }, 'Setup needed: open index.html in Notepad and paste your Supabase URL and key near the top.'));
+    return;
+  }
+  var s = await db.auth.getSession();
+  if (s.data && s.data.session) await enter(s.data.session.user); else render();
+})();
+</script>
+</body>
+</html>
